@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+title: >-
+  Insights into the inner workings of transformer models for protein function prediction
+message: >-
+  Please cite it with the metadata from this file.
+type: article
+authors:
+  - given-names: Markus
+    family-names: Wenzel
+    email: markus.wenzel@hhi.fraunhofer.de
+    affiliation: Fraunhofer HHI
+    orcid: 'https://orcid.org/0000-0002-6540-1476'
+  - given-names: Erik
+    family-names: Grüner
+  - given-names: Nils
+    family-names: Strodthoff
+    orcid: 'https://orcid.org/0000-0003-4447-0162'
+    email: nils.strodthoff@uni-oldenburg.de
+    affiliation: Carl von Ossietzky University of Oldenburg
+identifiers:
+  - type: doi
+    value: 'tbd.'
