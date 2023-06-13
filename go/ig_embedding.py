@@ -1,0 +1,4 @@
+from integrated_gradient_helper import run_embedding_all_proteins
+
+run_embedding_all_proteins(data_path="data/clas_go_deepgoplus_temporalsplit/test.json")
+

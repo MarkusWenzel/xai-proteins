@@ -1,0 +1,39 @@
+Bootstrap: docker
+From: pytorch/pytorch:1.9.1-cuda11.1-cudnn8-runtime
+
+%help
+  apptainer build --force --fakeroot image.sif image.def
+  
+  Submit job on the GPU cluster with Slurm:
+  sbatch <your_slurm_script>.sh
+
+  Execute local: 
+  apptainer exec --bind ./data:/data --bind ./models:/opt/output image.sif python <your_python_script>.py
+  
+  # List installed package versions
+  apptainer shell image.sif
+  conda list
+  conda list --explicit
+  pip freeze
+  
+  # Make space on harddrive if needed
+  apptainer cache clean 
+  rm -rf /tmp/build-temp-*
+  
+%environment
+
+  # conda environment needs to be available
+  export "PATH=/opt/conda/bin:$PATH"
+
+%post
+
+  # Install general dependencies
+  apt-get update
+
+  # Install packages
+  conda update -n base -c defaults conda
+  
+  conda install -y -c conda-forge transformers torchmetrics seaborn scikit-learn
+  conda install -y -c conda-forge pytorch-lightning==1.5.7
+  pip install test_tube pytorch-nlp fairscale captum lxml imgkit sentencepiece  
+  pip install setuptools==59.5.0
