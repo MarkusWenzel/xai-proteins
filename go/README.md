@@ -150,7 +150,7 @@ conda install -c conda-forge ipython scipy==1.8.1 pandas seaborn pytorch scikit-
 
 ## Additional experiments
 
-27. Additional experiments and analyses can be run with these commands:
+36. Additional experiments and analyses can be run with these commands:
 ```
 submit_prot_go_esm.sh # finetune ESM-2 model
 submit_prot_go_pretrained_shuffled.sh # frozen pretrained or shuffled encoder
