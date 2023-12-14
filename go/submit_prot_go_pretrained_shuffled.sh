@@ -10,8 +10,6 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=128G
 
-# Test must be on 1 GPU to maintain test sample order!
-
 source "/etc/slurm/local_job_dir.sh"
 mkdir -p "${LOCAL_JOB_DIR}/job_results"
 
@@ -26,8 +24,8 @@ echo "datasetfile: $datasetfile"
 
 export APPTAINER_BINDPATH="./:/opt/code,${LOCAL_JOB_DIR}/job_results:/opt/output,${LOCAL_JOB_DIR}/data:/data/"
 
-# Choose --model from bert_bfd or t5_xl_uniref50:
-cmd="python /opt/code/prot_go.py --max_epochs 20 --datasetfile $datasetfile --model bert_bfd"
+# Choose --option from pretrained/shuffled:
+cmd="python /opt/code/prot_go_pretrained_shuffled.py --option pretrained --nr_frozen_epochs 4 --min_epochs 4 --max_epochs 4 --datasetfile $datasetfile --model bert_bfd"
 
 echo "Command: $cmd"
 apptainer exec --nv image.sif $cmd

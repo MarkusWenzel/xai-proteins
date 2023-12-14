@@ -67,8 +67,6 @@ def move_combined_files(from_dir:str="data/clas_go_deepgoplus_temporalsplit/ig_o
 
     test_df = pd.read_json(test_set_path)
     test_name_list = test_df.name.values
-    # If we would have selected a subset of all proteins from the test set:
-    # test_name_list = [filename[len(from_dir):-4].split("_[")[0] for filename in glob.glob(f"{from_dir}*0[]].csv")] #MW
     
     for prot_name in test_name_list:
         from_path = f"{from_dir}{prot_name}.csv"
@@ -94,14 +92,13 @@ def create_single_dataframe(folder_path:str, test_set_path:str):
     test_df=pd.DataFrame(data[0], columns=["sequence","name","label"])
 
     test_df['sequence'] = test_df.sequence.apply(lambda x: re.sub(r"[UZOB]", "X", x)) # replace rare aminoacids
-    #test_df['sequence'] = test_df.sequence.apply(lambda x: [" ".join(list(x))]) # spacing the sequences # Not needed here.
     test_df['label'] = test_df['label'].apply(lambda x: np.array(list(x)).astype(int)) # label style for prepare_sample function
     
     # create new column and merge
     X = pd.DataFrame()
-    # for prot_name in tqdm(test_df.name.values): # MW
-    name_list_in_folder = [filename[len(folder_path):-4].split("_[")[0] for filename in glob.glob(f"{folder_path}*.csv")] #MW
-    for prot_name in tqdm(name_list_in_folder): # MW
+    # for prot_name in tqdm(test_df.name.values):
+    name_list_in_folder = [filename[len(folder_path):-4].split("_[")[0] for filename in glob.glob(f"{folder_path}*.csv")]
+    for prot_name in tqdm(name_list_in_folder):
         df_prot = pd.read_csv(folder_path+prot_name+".csv")
         pro_rel_vec = df_prot.sum(axis=1).values # ndarray size=(480,)
         X = X.append({'name': prot_name, 'relevances': pro_rel_vec},ignore_index=True)    
@@ -109,7 +106,6 @@ def create_single_dataframe(folder_path:str, test_set_path:str):
     df_result = pd.merge(test_df, X, on="name")
     
     print("Length of df_result versus length of test_df: %i vs. %i" % (len(df_result), len(test_df)))
-    #assert len(df_result)==len(test_df), "Some relevances are missing. please check ig_outputs_combine to have all the files."
     
     df_result.to_json(pathlib.Path(parent_folder_path, "test_rel.json"), orient='records')
     print(f"Created {parent_folder_path}/test_rel.json")

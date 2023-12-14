@@ -1,10 +1,8 @@
 """
-Instructions for running the code can be found in the go/README.md
-You can train on multi-GPU, but need then to resubmit checkpoint on 1 GPU for testing to maintain test sample order.
-Download the job result from the GPU-cluster and compute the GO-specific metrics on your local computer with evaluate_go.py
+Instructions for running the code can be found in the ec/README.md
 
 Attribution Notice:
-Code modified from https://github.com/agemagician/ProtTrans/blob/master/Fine-Tuning/ProtBert-BFD-FineTuning-PyTorchLightning-MS.ipynb
+The code in this file was adapted from https://github.com/agemagician/ProtTrans/blob/master/Fine-Tuning/ProtBert-BFD-FineTuning-PyTorchLightning-MS.ipynb
 which was published under the Academic Free License v3.0: https://github.com/agemagician/ProtTrans/blob/master/LICENSE.md
 (and which contains code from https://github.com/minimalist-nlp/lightning-text-classification )
 We cite the aforementioned license below the code.
@@ -18,107 +16,72 @@ from torch.utils.data.distributed import DistributedSampler
 
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.plugins import DDPPlugin
 
 import torchmetrics
+from transformers import AutoTokenizer, EsmModel
 from transformers import BertTokenizer, BertModel
 from transformers import T5Tokenizer, T5EncoderModel
+from transformer_pooling import DefaultPool,bn_drop_lin,create_head
 
+from torchnlp.encoders import LabelEncoder
 from torchnlp.datasets.dataset import Dataset
 from torchnlp.utils import collate_tensors
 
-import pandas as pd
 from test_tube import HyperOptArgumentParser
-import os
-import re
-import requests
 from tqdm.auto import tqdm
 from datetime import datetime
 from collections import OrderedDict
+
+import os,re,json, requests
+import pandas as pd
 import logging as log
 import numpy as np
-import json
-import shutil
-from pathlib import Path
 
-from transformer_pooling import *
-from schedulers import *
+from pytorch_lightning.plugins import DDPPlugin
 
+class EC_dataset():
+    """ Load dataset from *.npy files. """
+    def  __init__(self) -> None:
+        self.preprocess_dataset()
 
-class GO_dataset():
-    """ Preprocess and load temporal split or CAFA3 dataset from *.npy files. """
-            
-    def preprocess_temporalsplit(self):        
-        ids = np.load("/data/clas_go_deepgoplus_temporalsplit/ID.npy",allow_pickle=True)
-        tok = np.load("/data/clas_go_deepgoplus_temporalsplit/tok.npy",allow_pickle=True)
-        tok_itos = np.load("/data/clas_go_deepgoplus_temporalsplit/tok_itos.npy",allow_pickle=True)
-        label = np.load("/data/clas_go_deepgoplus_temporalsplit/label.npy",allow_pickle=True)
-        train = np.load("/data/clas_go_deepgoplus_temporalsplit/train_IDs.npy",allow_pickle=True)
-        test = np.load("/data/clas_go_deepgoplus_temporalsplit/val_IDs.npy",allow_pickle=True) # test=val!
-        #test = np.load("/data/clas_go_deepgoplus_temporalsplit/test_IDs.npy",allow_pickle=True) # Empty
-
-        # Test split
-        a = []
-        for i in test:
-            b = {'sequence': "".join(tok_itos[tok[i]][1:]),
-                'name': ids[i],
-                'label': "".join([str(s) for s in label[i]])}
-            a.append(b)
-        df_test = pd.DataFrame(a)
-        df_test.to_json('/data/test.json', orient='records')
-
-        # Random train and validation split. Like in DeepGOPlus: "In general, all parameters were tuned depending on their performance on a validation set which is a randomly split 10% of our training set." ( https://doi.org/10.1093/bioinformatics/btz595 )
-        a = []
-        for i in train:
-            b = {'sequence': "".join(tok_itos[tok[i]][1:]),
-                'name': ids[i],
-                'label': "".join([str(s) for s in label[i]])}
-            a.append(b)
-        df_train = pd.DataFrame(a)
-
-        df_valid_random = df_train.sample(frac=0.1, random_state=42)
-        df_train_random = df_train.drop(df_valid_random.index)
-        df_valid_random.to_json('/data/valid.json', orient='records') 
-        df_train_random.to_json('/data/train.json', orient='records')  
-               
-               
-    def preprocess_cafa3(self):        
-        ids = np.load("/data/clas_go_deepgoplus_cafa/ID.npy",allow_pickle=True)
-        tok = np.load("/data/clas_go_deepgoplus_cafa/tok.npy",allow_pickle=True)
-        tok_itos = np.load("/data/clas_go_deepgoplus_cafa/tok_itos.npy",allow_pickle=True)
-        label = np.load("/data/clas_go_deepgoplus_cafa/label.npy",allow_pickle=True)
-        train = np.load("/data/clas_go_deepgoplus_cafa/train_IDs.npy",allow_pickle=True)
-        val = np.load("/data/clas_go_deepgoplus_cafa/val_IDs.npy",allow_pickle=True)
-        test = np.load("/data/clas_go_deepgoplus_cafa/test_IDs.npy",allow_pickle=True) # Here, we have three splits including test
+    def preprocess_dataset(self):
+        """ Convert *.npy files to *.json lines."""
+        ids = np.load("/data/ID.npy",allow_pickle=True)
+        tok = np.load("/data/tok.npy",allow_pickle=True)
+        tok_itos = np.load("/data/tok_itos.npy",allow_pickle=True)
+        label = np.load("/data/label.npy",allow_pickle=True)
+        train = np.load("/data/train_IDs.npy",allow_pickle=True)
+        val = np.load("/data/val_IDs.npy",allow_pickle=True)
+        test = np.load("/data/test_IDs.npy",allow_pickle=True)
 
         X = {"train":train, "valid":val, "test":test}
         for k, data in X.items():
-            a = []
+            c = []
             for i in tqdm(data):
-                b = {"sequence": "".join(tok_itos[tok[i]][1:]),
-                    "name": ids[i], 
-                    "label": "".join([str(s) for s in label[i]])}
-                a.append(b)
+                d = {"sequence": "".join(tok_itos[tok[i]][1:]),
+                     "name": ids[i], 
+                     "label": float(label[i])}
+                c.append(d)
 
             with open(f'/data/{k}.json', 'w') as f:
-                json.dump(a,f)
-
+                json.dump(c,f)
+                
     def load_dataset(self, path):
         data = []
         with open(path) as f:
             for line in f:
                 data.append(json.loads(line))
-        df=pd.DataFrame(data[0], columns=["sequence","name","label"])
-                                
-        seq = list(df["sequence"])
-        label = list(df["label"])
+        df=pd.DataFrame(data[0], columns=['sequence','name','label'])        
+                        
+        seq = list(df['sequence'])
+        label = list(df['label'])
 
         # Add space between every token, and map rare amino acids to "X"
         seq = [" ".join("".join(sample.split())) for sample in seq]
         seq = [re.sub(r"[UZOB]", "X", sample) for sample in seq]
-        
+
         assert len(seq) == len(label)
         return Dataset(self.collate_lists(seq, label))
 
@@ -126,7 +89,7 @@ class GO_dataset():
         """ Converts each line into a dictionary. """
         collated_dataset = []
         for i in range(len(seq)):
-            collated_dataset.append({"seq": str(seq[i]), "label": torch.tensor( np.array(list(label[i])).astype(float))})
+            collated_dataset.append({"seq": str(seq[i]), "label": str(label[i])})
         return collated_dataset
 
 
@@ -138,26 +101,18 @@ class ProteinClassifier(pl.LightningModule):
         self.save_hyperparameters(hparams)
         self.batch_size = self.hparams.batch_size
 
-        self.model_name = "Rostlab/prot_" + self.hparams.model 
-        self.dataset = GO_dataset()
-         
-        # Select either temporal split or CAFA3
-        if self.hparams.datasetfile == "clas_go_deepgoplus_temporalsplit.tar.gz":
-            #self.dataset.preprocess_temporalsplit()
-            self.label_dims = 5101
-        elif self.hparams.datasetfile == "clas_go_deepgoplus_cafa.tar.gz":
-            #self.dataset.preprocess_cafa3()
-            self.label_dims = 5220
+        self.model_name = "Rostlab/prot_" + self.hparams.model                
+        self.dataset = EC_dataset()
         
-        # Copy label_itos.npy in output folder for later evaluation
-        from_file = Path("/data", self.hparams.datasetfile.split(sep=".")[0], "label_itos.npy")
-        to_file = Path("/opt", "output", "label_itos.npy")
-        #shutil.copy(str(from_file), str(to_file))
-        
-        
-        # The final metrics are computed on a local machine later. Accuracy is not the final metric.
-        self.valid_acc = torchmetrics.Accuracy(task="multilabel",num_labels=self.label_dims)
-        self.test_acc = torchmetrics.Accuracy(task="multilabel",num_labels=self.label_dims)
+        max_i = [2,6,65][self.hparams.ec_level]
+        self.hparams.label_set = ",".join([str(float(i)) for i in range(0, max_i)])
+        # Enzyme Commission (EC) number level 0 (enzyme no/yes): "0.0,1.0"
+        #EC level 1 (six main classes of enzymatic reactions): "0.0,1.0,2.0,3.0,4.0,5.0"
+        #EC level 2 (sub-classes of enzymatic reactions): "0.0,1.0,2.0...,63.0,64.0"
+
+        task="binary" if max_i==2 else "multiclass"
+        self.valid_acc = torchmetrics.Accuracy(task=task, num_classes=max_i)
+        self.test_acc = torchmetrics.Accuracy(task=task, num_classes=max_i)
 
         self.__build_model()
         self.__build_loss()
@@ -166,22 +121,33 @@ class ProteinClassifier(pl.LightningModule):
             self.freeze_encoder()
         else:
             self._frozen = False
-            
         self.nr_frozen_epochs = self.hparams.nr_frozen_epochs
 
     def __build_model(self) -> None:
-        """ Init BERT/T5 model, tokenizer, pooling strategy and classification head."""
-        
-        # Pretrained model and tokenizer
+        """ Init BERT/T5Encoder or ESM2 model, tokenizer, pooling strategy and classification head."""
+
         if(self.hparams.model=="bert_bfd"):
             self.ProtTrans = BertModel.from_pretrained(self.model_name)
             self.tokenizer = BertTokenizer.from_pretrained(self.model_name, do_lower_case=False)
+            self.encoder_features = 1024
         elif(self.hparams.model=="t5_xl_uniref50"):
             self.ProtTrans = T5EncoderModel.from_pretrained(self.model_name)
             self.tokenizer = T5Tokenizer.from_pretrained(self.model_name, do_lower_case=False)
+            self.encoder_features = 1024
+        elif(self.hparams.model=="esm2_t6_8M_UR50D"):
+            self.ProtTrans = EsmModel.from_pretrained("facebook/esm2_t6_8M_UR50D", problem_type="single_label_classification")
+            self.tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
+            self.encoder_features = 320
+        elif(self.hparams.model=="esm2_t33_650M_UR50D"):
+            self.ProtTrans = EsmModel.from_pretrained("facebook/esm2_t33_650M_UR50D", problem_type="single_label_classification")
+            self.tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t33_650M_UR50D")
+            self.encoder_features = 1280
         
-        self.encoder_features = 1024
-        
+
+        # Label Encoder
+        self.label_encoder = LabelEncoder(self.hparams.label_set.split(","), reserved_labels=[])
+        self.label_encoder.unknown_index = None
+
         # Pooling strategy
         if(self.hparams.pool=="default_all"):
             self.pool = DefaultPool(self.encoder_features,pool_cls=True, pool_max=True, pool_mean=True, pool_mean_sqrt=True)
@@ -189,13 +155,13 @@ class ProteinClassifier(pl.LightningModule):
             self.pool = DefaultPool(self.encoder_features,pool_cls=True, pool_max=False, pool_mean=False, pool_mean_sqrt=False)
             
         # Classification head
-        self.classification_head = create_head(self.pool.output_dim, self.label_dims, lin_ftrs=[self.label_dims*2], dropout=0.1, norm=True, act="relu", layer_norm=True)
+        self.classification_head = create_head(self.pool.output_dim, self.label_encoder.vocab_size, lin_ftrs=[50], dropout=0.1, norm=True, act="relu", layer_norm=True)
+        
 
     def __build_loss(self):
-        """ Initialize loss function. For Gene-Ontology-classification, we use binary cross entropy (BCE) loss instead of cross entropy loss, because of the multi-label-classification. The BCE loss version "BCEWithLogitsLoss" includes sigmoid.
-        """
-        self._loss = nn.BCEWithLogitsLoss()
-        
+        """ Initialize loss function. """
+        self._loss = nn.CrossEntropyLoss()
+
     def unfreeze_encoder(self) -> None:
         if self._frozen:
             log.info(f"\n-- Encoder model fine-tuning")
@@ -207,18 +173,21 @@ class ProteinClassifier(pl.LightningModule):
         for param in self.ProtTrans.parameters():
             param.requires_grad = False
         self._frozen = True
-            
+    
     def forward(self, input_ids=None, attention_mask=None, token_type_ids=None):
         """ PyTorch forward function. Returns dictionary with model outputs. """
         input_ids = torch.tensor(input_ids, device=self.device)
-        attention_mask= torch.ones_like(input_ids) # MW: Very new.
         attention_mask = torch.tensor(attention_mask,device=self.device)
 
         if(self.hparams.model=="bert_bfd"):
             token_embeddings = self.ProtTrans(input_ids, attention_mask)[0]
         elif(self.hparams.model=="t5_xl_uniref50"):
             token_embeddings = self.ProtTrans(input_ids, attention_mask).last_hidden_state
-        
+        elif(self.hparams.model=="esm2_t6_8M_UR50D"):
+            token_embeddings = self.ProtTrans(input_ids, attention_mask).last_hidden_state
+        elif(self.hparams.model=="esm2_t33_650M_UR50D"):
+            token_embeddings = self.ProtTrans(input_ids, attention_mask).last_hidden_state
+
         output = self.pool(token_embeddings,attention_mask)
         return {"logits": self.classification_head(output)}
 
@@ -230,21 +199,21 @@ class ProteinClassifier(pl.LightningModule):
         """
         Function that prepares a sample to input the model.
         :param sample: list of dictionaries.
-        
-        Returns:
-            - dictionary with the expected model inputs.
-            - dictionary with the expected target labels.
-        """        
+        Returns: Dictionary with the expected model inputs, and dictionary with the expected target labels.
+        """
         sample = collate_tensors(sample)
+
         inputs = self.tokenizer.batch_encode_plus(sample["seq"], add_special_tokens=True, padding=True, truncation=True, max_length=self.hparams.max_length, return_attention_mask=True)
 
         # Turn lists into numpy arrays already here (for upgrade to PyTorch Lightning 1.2.x)
         inputs = {k: np.array(v) for k, v in inputs.items()}
+        
+        if not prepare_target:
+            return inputs, {}
 
-        if not prepare_target: return inputs, {}
-
+        # Prepare target:
         try:
-            targets = {"labels": sample["label"]}
+            targets = {"labels": self.label_encoder.batch_encode(sample["label"])}
             return inputs, targets
         except RuntimeError:
             print(sample["label"])
@@ -255,69 +224,71 @@ class ProteinClassifier(pl.LightningModule):
         Runs one training step, i.e. forward then loss function.        
         :param batch: output of dataloader. 
         :param batch_nb: integer displaying which batch this is
-        Returns: loss (and adds the metrics to the lightning logger).
+        Returns: Loss (and adds the metrics to the logger).
         """
         inputs, targets = batch
-        model_out = self.forward(**inputs)       
-        loss_train = self.loss(model_out, targets)        
+        model_out = self.forward(**inputs)
+        loss_train = self.loss(model_out, targets)
+        
         self.log("train_loss", loss_train)
-        return loss_train
 
+        return loss_train        
+        
     def validation_step(self, batch: tuple, batch_nb: int, *args, **kwargs) -> dict:
+        """ Similar to the training step but with the model in eval mode.
+        Returns: Dictionary passed to the validation_epoch_end function.
+        """
+
         inputs, targets = batch
+
         model_out = self.forward(**inputs)
         loss_val = self.loss(model_out, targets)
-        y = targets["labels"]
-        y = y.to(torch.int)
-        y_hat = model_out["logits"]
-        y_hat = torch.sigmoid(y_hat)
-        val_acc = self.valid_acc(torch.round(y_hat), y)        
-        self.log('val_loss', loss_val, on_step=True, on_epoch=True, sync_dist=True)
-        self.log('val_acc', val_acc, on_step=True, on_epoch=True, sync_dist=True)
-        output = OrderedDict({"val_loss": loss_val, "val_acc": val_acc,})
-        return output            
 
+        y = targets["labels"]
+        y_hat = model_out["logits"]
+        
+        labels_hat = torch.argmax(y_hat, dim=1)
+        val_acc = self.valid_acc(labels_hat, y)
+        
+        self.log('val_loss', loss_val, on_step=True, on_epoch=True, sync_dist=True)
+        self.log('val_acc', val_acc, on_step=True, on_epoch=True, sync_dist=True)        
+                
+        output = OrderedDict({"val_loss": loss_val, "val_acc": val_acc,})
+
+        return output
+        
     def test_step(self, batch: tuple, batch_nb: int, *args, **kwargs) -> dict:
+        """ Similar to the training step but with the model in eval mode.
+        Returns: dictionary passed to the test_epoch_end function.
+        """
+
         inputs, targets = batch
         model_out = self.forward(**inputs)
         loss_test = self.loss(model_out, targets)
+
         y = targets["labels"]
-        y = y.to(torch.int)  
-        # Rounding probabilities to binary multilabel is required to compute the accuracy
         y_hat = model_out["logits"]
-        y_hat = torch.sigmoid(y_hat)
-        test_acc = self.test_acc(torch.round(y_hat), y)        
-        self.log('test_loss', loss_test, on_step=True, on_epoch=True, sync_dist=True)        
-        self.log("test_acc", test_acc, on_step=True, on_epoch=True, sync_dist=True)
-        output = OrderedDict({"y": y, "y_hat": y_hat,})
-        return output
-
-    def test_epoch_end(self, outputs: list):# -> dict:
-        """ Function that takes as input a list of dictionaries returned by the test_step
-        function and measures the model performance accross the entire test set.
-        """
-        y_all = torch.cat([x["y"] for x in outputs])
-        y_hat_all = torch.cat([x["y_hat"] for x in outputs])
-
-        y_all=self.all_gather(y_all) # Gather over all GPUs
-        y_hat_all=self.all_gather(y_hat_all) # Gather over all GPUs
         
-        # Attention: We use 1 GPU for testing. With 2,3,4 etc. GPUs the order of the test samples/predictions would be changed and the final (local) evaluation would not work!
-        #torch.save(y_all, '/opt/output/y_all.pt')
-        torch.save(y_all, 'y_all.pt')
-        #torch.save(y_hat_all, '/opt/output/y_hat_all.pt')
-        torch.save(y_hat_all, 'y_hat_all.pt')
+        labels_hat = torch.argmax(y_hat, dim=1)
 
+        test_acc = self.test_acc(labels_hat, y)
+        self.log('test_acc', test_acc, on_step=True, on_epoch=True, sync_dist=True)
+                
+        output = OrderedDict({"test_loss": loss_test, "test_acc": test_acc,})
+
+        return output                
+        
     def configure_optimizers(self):
         """ Sets different learning rates for different parameter groups. """
         parameters = [
-            {"params": self.classification_head.parameters(), "name": "classification_head"},
-            {"params": self.ProtTrans.parameters(), "lr": self.hparams.encoder_learning_rate, "name": "encoder_learning_rate"},
+            {"params": self.classification_head.parameters()},
+            {
+                "params": self.ProtTrans.parameters(),
+                "lr": self.hparams.encoder_learning_rate,
+            },
         ]
         optimizer = optim.Adam(parameters, lr=self.hparams.learning_rate)
-        lr_dict = {"scheduler": get_cosine_schedule_with_warmup(optimizer, hparams.num_warmup_steps, hparams.num_training_steps),
-            "interval": "step", "name": "cosine_schedule_with_warmup"}
-        return {"optimizer": optimizer, "lr_scheduler": lr_dict}
+        return [optimizer], []
 
     def on_epoch_end(self):
         """ Pytorch lightning hook """
@@ -326,125 +297,132 @@ class ProteinClassifier(pl.LightningModule):
 
     def __retrieve_dataset(self, train=True, val=True, test=True):
         """ Retrieves task specific dataset """
-        if train: return self.dataset.load_dataset(hparams.train_json)
-        elif val: return self.dataset.load_dataset(hparams.dev_json)
-        elif test: return self.dataset.load_dataset(hparams.test_json)
-        else: print('Incorrect dataset split')
+        if train:
+            return self.dataset.load_dataset(hparams.train_json)
+        elif val:
+            return self.dataset.load_dataset(hparams.dev_json)
+        elif test:
+            return self.dataset.load_dataset(hparams.test_json)
+        else:
+            print('Incorrect dataset split')
 
     def train_dataloader(self) -> DataLoader:
-        """ Loads training data set. """
+        """ Function that loads the train set. """
         self._train_dataset = self.__retrieve_dataset(val=False, test=False)
-        return DataLoader(dataset=self._train_dataset, 
-            #sampler=RandomSampler(self._train_dataset),
+        return DataLoader(
+            dataset=self._train_dataset,
             sampler=DistributedSampler(self._train_dataset, shuffle=True),
-            batch_size=self.hparams.batch_size, collate_fn=self.prepare_sample, num_workers=self.hparams.loader_workers, pin_memory=True)
+            batch_size=self.hparams.batch_size,
+            collate_fn=self.prepare_sample,
+            num_workers=self.hparams.loader_workers,
+            pin_memory=True,
+        )
 
     def val_dataloader(self) -> DataLoader:
-        """ Loads validation set. """
+        """ Function that loads the validation set. """
         self._dev_dataset = self.__retrieve_dataset(train=False, test=False)
-        return DataLoader(dataset=self._dev_dataset, 
-            sampler=DistributedSampler(self._dev_dataset, shuffle=False), # MW: Very new: ", shuffle=False"
-            batch_size=self.hparams.batch_size, collate_fn=self.prepare_sample, num_workers=self.hparams.loader_workers, pin_memory=True)
+        return DataLoader(
+            dataset=self._dev_dataset,
+            sampler=DistributedSampler(self._dev_dataset, shuffle=False),
+            batch_size=self.hparams.batch_size,
+            collate_fn=self.prepare_sample,
+            num_workers=self.hparams.loader_workers,
+            pin_memory=True,
+        )
 
     def test_dataloader(self) -> DataLoader:
-        """ Loads test set. """
+        """ Function that loads the test set. """
         self._test_dataset = self.__retrieve_dataset(train=False, val=False)
-        return DataLoader(dataset=self._test_dataset, 
-            sampler=DistributedSampler(self._test_dataset, shuffle=False), # MW: Very new: ", shuffle=False"
-            batch_size=self.hparams.batch_size, collate_fn=self.prepare_sample, num_workers=self.hparams.loader_workers, pin_memory=True)
+        return DataLoader(
+            dataset=self._test_dataset,
+            sampler=DistributedSampler(self._test_dataset, shuffle=False),
+            batch_size=self.hparams.batch_size,
+            collate_fn=self.prepare_sample,
+            num_workers=self.hparams.loader_workers,
+            pin_memory=True,
+        )
 
     @classmethod
-    def add_model_specific_args(cls, parser: HyperOptArgumentParser) -> HyperOptArgumentParser:
-        """ Parser for estimator specific arguments/hyperparameters.""" 
-        parser.opt_list("--model", default="bert_bfd", type=str, help="Choose pretrained model.", options=["bert_bfd", "t5_xl_uniref50"])
+    def add_model_specific_args(
+        cls, parser: HyperOptArgumentParser
+    ) -> HyperOptArgumentParser:
+        """ Parser for estimator specific arguments/hyperparameters. 
+        :param parser: HyperOptArgumentParser obj
+        Returns: updated parser
+        """
+        parser.opt_list("--model", default="bert_bfd", type=str, help="Name of pretrained ProtTrans model.", options=["bert_bfd", "t5_xl_uniref50"])
         parser.opt_list("--max_length", default=1000, type=int, help="Maximum sequence length.")
         parser.add_argument("--encoder_learning_rate", default=5e-06, type=float, help="Encoder specific learning rate.")
         parser.add_argument("--learning_rate", default=3e-05, type=float, help="Classification head learning rate.")
-        parser.opt_list("--nr_frozen_epochs", default=1, type=int, help="Number of epochs we keep encoder model frozen.", tunable=True, options=[0, 1, 2, 3, 4, 5])
+        parser.opt_list("--nr_frozen_epochs", default=1, type=int, help="Number of epochs encoder model kept frozen.", tunable=True, options=[0, 1, 2, 3, 4, 5])        
         parser.opt_list("--pool", default="default_all", type=str, help="Pooling type.", options=["default_all", "default_cls"])
 
-        # Data arguments:      
-        parser.add_argument("--train_json", default="/data/clas_go_deepgoplus_temporalsplit/train.json", type=str, help="Path to train data.")
-        parser.add_argument("--dev_json", default="/data/clas_go_deepgoplus_temporalsplit/valid.json", type=str, help="Path to dev data.")
-        parser.add_argument("--test_json", default="/data/clas_go_deepgoplus_temporalsplit/test.json", type=str, help="Path to test data.")
-        parser.add_argument("--loader_workers", default=8, type=int, help="Subprocesses to use for data loading.")
-        parser.add_argument("--gradient_checkpointing", default=True, type=bool,help="Enable or disable gradient checkpointing.")
-        parser.opt_list("--datasetfile",  default="clas_go_deepgoplus_temporalsplit.tar.gz", type=str, help="Choose temporal or CAFA3 split", options=["clas_go_deepgoplus_temporalsplit.tar.gz","clas_go_deepgoplus_cafa.tar.gz"])
+        # Data arguments:            
+        parser.opt_list("--ec_level", default=1, type=int, help="Enzyme Commission number level 0, 1, or 2.", options=[0, 1, 2])
+        
+        parser.add_argument("--label_set", default="", type=str, help="Classification labels set.") # The "label_set" is automatically determined depending on the EC level. Not necessary to set this manually as argument.
 
+        parser.add_argument("--train_json", default="/data/train.json", type=str, help="Path to the file containing the train data.")
+        parser.add_argument("--dev_json", default="/data/valid.json", type=str, help="Path to the file containing the dev data.")
+        parser.add_argument("--test_json", default="/data/test.json", type=str, help="Path to the file containing the test data.")
+        parser.add_argument("--loader_workers", default=8, type=int, help="Nr. subprocesses for data loading")
+        
         return parser
 
-# Setup the TensorBoardLogger # MW: VERY NEW
+# Setup the TensorBoardLogger
 def setup_tensorboard_logger() -> TensorBoardLogger:
-    #return TensorBoardLogger(save_dir="/opt/output", version="0", name="lightning_logs")
-    return TensorBoardLogger(save_dir="", version="0", name="lightning_logs")
+    return TensorBoardLogger(save_dir="/opt/output", version="0", name="lightning_logs")
 logger = setup_tensorboard_logger()
 
-
+# Project-wide arguments
 parser = HyperOptArgumentParser(strategy="random_search", description="Protein classifier", add_help=True)
 parser.add_argument("--seed", type=int, default=3, help="Training seed.")
+parser.add_argument("--save_top_k", default=1, type=int, help="The best k models according to the quantity monitored will be saved.")
 
 # Early stopping
-parser.add_argument("--save_top_k", default=1, type=int, help="The best k models according to the quantity monitored will be saved.")
-parser.add_argument("--save_last", type=bool, default=False, help="Safe last checkpoint.")
-parser.add_argument("--monitor", default="val_loss_epoch", type=str, help="Quantity to monitor.") 
-parser.add_argument("--metric_mode", default="min", type=str, help="If we want to min/max the monitored quantity.", choices=["auto", "min", "max"])
-parser.add_argument("--patience", default=2, type=int, help=("Number of epochs with no improvement after which training will be stopped."))
+parser.add_argument("--monitor", default="val_acc_epoch", type=str, help="Quantity to monitor.")
+parser.add_argument("--metric_mode", default="max", type=str, help="If we want to min/max the monitored quantity.", choices=["auto", "min", "max"])
+parser.add_argument("--patience", default=2, type=int, help=("Nr. epochs with no improvement after which training will be stopped."))
 parser.add_argument("--min_epochs", default=1, type=int, help="Limits training to a minimum number of epochs")
-parser.add_argument("--max_epochs", default=100, type=int, help="Limits training to a maximum number of epochs")
+parser.add_argument("--max_epochs", default=100, type=int, help="Limits training to a max number number of epochs")
 
 # Batching
 parser.add_argument("--batch_size", default=1, type=int, help="Batch size to be used.")
-parser.add_argument("--accumulate_grad_batches", default=64, type=int, help=("Accumulated gradients runs K small batches of size N before doing a backwards pass."))
+parser.add_argument("--accumulate_grad_batches", default=64, type=int, help=("Accumulated gradients runs K small batches of size N before backwards pass."))
 
-# Learning rate scheduling
-parser.add_argument("--num_warmup_steps", default=500, type=int, help="The number of steps for the warmup phase.")
-parser.add_argument("--num_training_steps", default=20000, type=int, help="The total number of training steps.")        
-            
-# GPU/TPU arguments (-1 means all)
+# GPU/TPU arguments
 parser.add_argument("--gpus", type=int, default=-1, help="How many gpus")
 parser.add_argument("--tpu_cores", type=int, default=None, help="How many tpus")
+parser.add_argument("--limit_train_batches", default=1.0, type=float, help=("For rapid prototyping. Ratio of training dataset to use."))
+parser.add_argument("--limit_val_batches", default=1.0, type=float, help=("For rapid prototyping. Ratio of validation dataset to use."))
+parser.add_argument("--limit_test_batches", default=1.0, type=float, help=("For rapid prototyping. Ratio of test dataset to use."))
+parser.add_argument("--resume_from_checkpoint", default=None, type=str, help=("Path to checkpoint from previous run; for job resubmission."))
 
-# For rapid prototyping: use part of data only.
-parser.add_argument("--limit_train_batches", default=1.0, type=float, help=("Ratio of training data to use."))
-parser.add_argument("--limit_val_batches", default=1.0, type=float, help=("Ratio of validation data to use."))
-parser.add_argument("--limit_test_batches", default=1.0, type=float, help=("Ratio of test data to use."))
-
-# Resubmit job based on checkpoint from previous run.
-parser.add_argument("--resume_from_checkpoint", default=None, type=str, help=("Path to checkpoint from previous run."))
-
-# Precision
-parser.add_argument("--precision", type=int, default="32", help="full or mixed precision mode")
+# Mixed precision
+parser.add_argument("--precision", type=int, default="32", help="full precision or mixed precision mode")
 parser.add_argument("--amp_level", type=str, default="O1", help="mixed precision type")
 parser.add_argument("--amp_backend", type=str, default="apex", help="PyTorch AMP (native) or NVIDIA apex (apex).")
 
+# Each LightningModule defines arguments relevant to it
 parser = ProteinClassifier.add_model_specific_args(parser)
 hparams = parser.parse_known_args()[0]
 
-# Main training routine
+""" Main training routine specific for this project """
 seed_everything(hparams.seed)
 
-# Init model
+# Init lightning model
 model = ProteinClassifier(hparams)
 
-# Early stopping
+# Init early stopping
 early_stop_callback = EarlyStopping(monitor=hparams.monitor, min_delta=0.0, patience=hparams.patience, verbose=True, mode=hparams.metric_mode)
 
-# Checkpoints
+# Init model checkpoint callback
 ckpt_path = os.path.join(logger.save_dir, logger.name, f"version_{logger.version}", "checkpoints")
-checkpoint_callback = ModelCheckpoint(
-    dirpath=ckpt_path + "/",
-    filename = "{epoch}-{val_loss_epoch:.2f}-{val_acc_epoch:.2f}",
-    save_top_k=hparams.save_top_k,
-    verbose=True,
-    monitor=hparams.monitor,
-    every_n_epochs=1,
-    mode=hparams.metric_mode,
-)
 
-# Log learning rate to tensorboard and stdout
-lr_monitor = LearningRateMonitor(logging_interval="step")
-lr_monitor2 = LRMonitorCallback(start=False,end=True, interval="step")
+# Initialize model checkpoint saver
+checkpoint_callback = ModelCheckpoint(dirpath=ckpt_path + "/", filename = "{epoch}-{val_loss_epoch:.2f}-{val_acc_epoch:.2f}", save_top_k=hparams.save_top_k, verbose=True, monitor=hparams.monitor, every_n_epochs=1, mode=hparams.metric_mode)
 
+# Init Trainer
 trainer = Trainer(
     gpus=hparams.gpus,
     tpu_cores=hparams.tpu_cores,
@@ -456,7 +434,7 @@ trainer = Trainer(
     limit_train_batches=hparams.limit_train_batches,
     limit_val_batches=hparams.limit_val_batches,
     limit_test_batches=hparams.limit_test_batches,
-    callbacks=[lr_monitor, lr_monitor2, checkpoint_callback, early_stop_callback],
+    callbacks=[checkpoint_callback, early_stop_callback],
     precision=hparams.precision,
     amp_level=hparams.amp_level,
     amp_backend=hparams.amp_backend,
@@ -464,8 +442,9 @@ trainer = Trainer(
     resume_from_checkpoint=hparams.resume_from_checkpoint,
 )
 
-#trainer.fit(model)
-#trainer.test(ckpt_path='best')
+# Start training
+trainer.fit(model)
+trainer.test(ckpt_path='best')
 
 
 """

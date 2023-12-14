@@ -12,7 +12,7 @@ def t_sne(ig_outputs_path: str, test_json_path: str):
     """
     Non-linear dimensionality reduction on ig_outputs with t-distributed stochastic neighbor embedding (t-SNE)
     Find low-dimensional representation of data in which distances respect distances in original high-dimensional space.
-    # Principal component analysis (PCA) prior to t-SNE, as recommended on
+    Principal component analysis (PCA) prior to t-SNE, as recommended on
     https://scikit-learn.org/stable/modules/generated/sklearn.manifold.TSNE.html
     Args:
         ig_outputs_path (str): path to ig_outputs/ containing .csv of each protein with dimensions 480xN

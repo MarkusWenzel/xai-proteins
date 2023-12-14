@@ -36,7 +36,7 @@ def plot_overlay(reject_wil, metric_name:str, tag:str, ec:int, df_test_rel):
 
     # Overlay ProtBert heads with positive relevance with ProtBert heads with positive annotation-relevance-correlations
     plt.figure(figsize=(3.15,2.8))
-    sns.heatmap(data=res.reshape(30,16), mask=~(reject_t & reject_wil).reshape(30,16), vmin=0, cmap=sns.color_palette("flare", 20), cbar_kws={"label": cmap_label})
+    sns.heatmap(data=res.reshape(30,16), mask=~(reject_t & reject_wil).reshape(30,16), vmin=0, vmax=70, cmap=sns.color_palette("flare", 20), cbar_kws={"label": cmap_label})
     plt.xlabel("Heads")
     plt.ylabel("Layers")
     plt.savefig(Path("results", f"ec{ec}-overlay-pos-rel-with-annot-rel-corr-{metric_name}-{tag}.png"), bbox_inches="tight")
@@ -97,7 +97,7 @@ if __name__ == "__main__":
             res_wil = -np.log(pvals_corrected)
 
             plt.figure(figsize=(4.5,4))
-            sns.heatmap(data=res_wil.reshape(30,16), mask=(~reject_wil).reshape(30,16), vmin=0, cmap=sns.color_palette("Blues", as_cmap=True), cbar_kws={"label": "-log(p)"})
+            sns.heatmap(data=res_wil.reshape(30,16), mask=(~reject_wil).reshape(30,16), vmin=0, vmax=70, cmap=sns.color_palette("Blues", as_cmap=True), cbar_kws={"label": "-log(p)"})
             plt.xlabel("Heads")
             plt.ylabel("Layers")
             plt.savefig(Path("results", f"ec{ec}-stat-wilcoxon-signed-rank-relevance-{tag}.png"), bbox_inches="tight")

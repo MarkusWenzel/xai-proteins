@@ -41,7 +41,6 @@ def filter_df_by_feature(df, feature_name):
 
     df_filtered = df.loc[df.type==feature_name]
     df_filtered = df_filtered[["name","primary","gos","type","location","description","evidence"]]
-    # df_filtered['name'] = df_filtered.index.values # <-- No renaming from name to ID, keeping original protein names, in order to allow later merge on name
     df_filtered['location'] = df_filtered.location.apply(lambda x:[x])
     df_filtered = df_filtered.set_index(np.arange(len(df_filtered)))
 
@@ -56,9 +55,6 @@ def sprot_setup(script_dir, parse_features):
     max_entries=0 #set max_entries to 0 for full sprot
     df = parse_uniprot_xml(script_dir, max_entries, parse_features=parse_features)
     df["accession"]=df.index #store accession as explicit column
-
-    # Commented out this line, because in the Gene Ontology case, we don't care about Enzyme Commission numbers and don't need to filter
-    #df = df[df.ecs.apply(lambda x:len(x)>0)] #select rows with ec values
     
     df=df.explode("features") # separate entry for every annotation site
     df=df[~df.features.isna()] # select only non-zero entries

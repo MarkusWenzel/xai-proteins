@@ -103,12 +103,33 @@ unzip -j -d ./data/ec50_level1 data/ec50_level1.zip
 ```
 conda create -n stats ipython
 conda activate stats
-conda install -c conda-forge "scipy>=1.6.0" pandas seaborn pytorch scikit-learn tqdm lxml statsmodels
+conda install -c conda-forge ipython scipy==1.8.1 pandas seaborn pytorch scikit-learn tqdm lxml statsmodels
+# respectively with
+# conda create -n stats
+# conda activate stats
+# conda install -c conda-forge "scipy>=1.6.0" pandas==1.3.5 seaborn pytorch scikit-learn tqdm lxml statsmodels ipython
 ```
 23. Download Swiss-Prot to local computer with `bash ./download_swissprot.sh`
 24. Run (pre-)processing again locally (in conda env `stats`) with `python processing.py`
 25. Run: `python annotation_eval.py` which computes correlation between relevances on the sequence-level (computed with an adaptation of integrated gradients) with the active/binding/motif/transmembrane sites found in the protein database UniProt.
 26. Run: `python stat_eval.py` which identifies heads with a positive relevance summed along the sequence.
+
+
+## Additional experiments
+
+27. Additional experiments and analyses can be run with these commands:
+```
+submit_prot_ec_esm.sh # finetune ESM-2 model
+submit_prot_ec_flip.sh # conduct residue substitution experiment
+submit_prot_ec_pretrained_shuffled.sh # frozen pretrained or shuffled encoder
+
+# analyses for EC40/50 on levels L1/L2 (in addition to EC50 L1)
+sbatch submit_code.sh ig_embedding_EC40L1.py 
+sbatch submit_code.sh ig_embedding_EC40L2.py
+sbatch submit_code.sh ig_embedding_EC50L2.py
+python annotation_eval_emb_EC4050L12.py
+```
+
 
 ### Note 
 

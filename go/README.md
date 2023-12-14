@@ -136,12 +136,27 @@ tar xvzf data/clas_go_deepgoplus_temporalsplit.tar.gz -C data/
 ```
 conda create -n stats ipython
 conda activate stats
-conda install -c conda-forge "scipy>=1.6.0" pandas seaborn pytorch scikit-learn tqdm lxml statsmodels
+conda install -c conda-forge ipython scipy==1.8.1 pandas seaborn pytorch scikit-learn tqdm lxml statsmodels
+# respectively with
+# conda create -n stats
+# conda activate stats
+# conda install -c conda-forge "scipy>=1.6.0" pandas==1.3.5 seaborn pytorch scikit-learn tqdm lxml statsmodels ipython
 ```
 32. Run (pre-)processing again locally (in conda env `stats`) with `python processing.py` (re-run if you've switched to a different GO-term)
 33. Run: `python annotation_eval.py` which computes correlation between relevances on sequence-level (for each head in each layer: for the positive class i.e. the selected GO-term) with the annotations found in the protein database UniProt, respectively Prosite (active/binding/transmembrane sites, motifs, prosite patterns). Creates figures in results folder.
 34. Run: `python stat_eval.py` which identifies heads/layers whose relevances (computed with integrated gradients) are (statistically significantly) positive for the selected classes (either GO-term catalytic activity or binding or membrane). Creates figure in results folder.
 35. If you want to repeat the entire explainability analysis for a different GO-term, edit `parameters.json` switching between one of these options for `SELECTED_GO_TERM`: GO:0003824 (catalytic activity), GO:0016020 (membrane), GO:0005488 (binding) (loaded by `processing.py`, `integrated_gradient_helper.py`, `stat_eval.py`, `annotation_eval.py`). (Note: For CAFA3 instead of 2016/temporalsplit, you would need to adapt: `processing.py`, `ig.py`, `ig_embedding.py`, `combining_ig_output_files.py`, `annotation_eval.py`, `stat_eval.py`)
+
+
+## Additional experiments
+
+27. Additional experiments and analyses can be run with these commands:
+```
+submit_prot_go_esm.sh # finetune ESM-2 model
+submit_prot_go_pretrained_shuffled.sh # frozen pretrained or shuffled encoder
+python jaccard.py
+python annotation_eval_transmembrane.py
+```
 
 
 ### Note

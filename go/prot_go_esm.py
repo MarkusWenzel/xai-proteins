@@ -3,7 +3,7 @@ Instructions for running the code can be found in the go/README.md
 You can train on multi-GPU, but need then to resubmit checkpoint on 1 GPU for testing to maintain test sample order.
 Download the job result from the GPU-cluster and compute the GO-specific metrics on your local computer with evaluate_go.py
 
-Attribution Notice:
+Attribution Notice: 
 Code modified from https://github.com/agemagician/ProtTrans/blob/master/Fine-Tuning/ProtBert-BFD-FineTuning-PyTorchLightning-MS.ipynb
 which was published under the Academic Free License v3.0: https://github.com/agemagician/ProtTrans/blob/master/LICENSE.md
 (and which contains code from https://github.com/minimalist-nlp/lightning-text-classification )
@@ -25,6 +25,7 @@ from pytorch_lightning.plugins import DDPPlugin
 import torchmetrics
 from transformers import BertTokenizer, BertModel
 from transformers import T5Tokenizer, T5EncoderModel
+from transformers import AutoTokenizer, EsmModel
 
 from torchnlp.datasets.dataset import Dataset
 from torchnlp.utils import collate_tensors
@@ -143,21 +144,21 @@ class ProteinClassifier(pl.LightningModule):
          
         # Select either temporal split or CAFA3
         if self.hparams.datasetfile == "clas_go_deepgoplus_temporalsplit.tar.gz":
-            #self.dataset.preprocess_temporalsplit()
+            self.dataset.preprocess_temporalsplit()
             self.label_dims = 5101
         elif self.hparams.datasetfile == "clas_go_deepgoplus_cafa.tar.gz":
-            #self.dataset.preprocess_cafa3()
+            self.dataset.preprocess_cafa3()
             self.label_dims = 5220
         
         # Copy label_itos.npy in output folder for later evaluation
         from_file = Path("/data", self.hparams.datasetfile.split(sep=".")[0], "label_itos.npy")
         to_file = Path("/opt", "output", "label_itos.npy")
-        #shutil.copy(str(from_file), str(to_file))
-        
+        shutil.copy(str(from_file), str(to_file))
         
         # The final metrics are computed on a local machine later. Accuracy is not the final metric.
         self.valid_acc = torchmetrics.Accuracy(task="multilabel",num_labels=self.label_dims)
         self.test_acc = torchmetrics.Accuracy(task="multilabel",num_labels=self.label_dims)
+        
 
         self.__build_model()
         self.__build_loss()
@@ -170,18 +171,34 @@ class ProteinClassifier(pl.LightningModule):
         self.nr_frozen_epochs = self.hparams.nr_frozen_epochs
 
     def __build_model(self) -> None:
-        """ Init BERT/T5 model, tokenizer, pooling strategy and classification head."""
+        """ Init BERT/T5Encoder or ESM2 model, tokenizer, pooling strategy and classification head."""
         
         # Pretrained model and tokenizer
         if(self.hparams.model=="bert_bfd"):
             self.ProtTrans = BertModel.from_pretrained(self.model_name)
             self.tokenizer = BertTokenizer.from_pretrained(self.model_name, do_lower_case=False)
+            self.encoder_features = 1024
         elif(self.hparams.model=="t5_xl_uniref50"):
             self.ProtTrans = T5EncoderModel.from_pretrained(self.model_name)
             self.tokenizer = T5Tokenizer.from_pretrained(self.model_name, do_lower_case=False)
-        
-        self.encoder_features = 1024
-        
+            self.encoder_features = 1024
+        elif(self.hparams.model=="esm2_t6_8M_UR50D"):             
+            self.ProtTrans = EsmModel.from_pretrained("facebook/esm2_t6_8M_UR50D", problem_type="multi_label_classification") 
+            self.tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D") 
+            self.encoder_features = 320 
+        elif(self.hparams.model=="esm2_t33_650M_UR50D"):             
+            self.ProtTrans = EsmModel.from_pretrained("facebook/esm2_t33_650M_UR50D", problem_type="multi_label_classification") 
+            self.tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t33_650M_UR50D") 
+            self.encoder_features = 1280 
+        elif(self.hparams.model=="esm2_t36_3B_UR50D"):             
+            self.ProtTrans = EsmModel.from_pretrained("facebook/esm2_t36_3B_UR50D", problem_type="multi_label_classification") 
+            self.tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t36_3B_UR50D") 
+            self.encoder_features = 2560 
+        elif(self.hparams.model=="esm2_t48_15B_UR50D"):             
+            self.ProtTrans = EsmModel.from_pretrained("facebook/esm2_t48_15B_UR50D", problem_type="multi_label_classification") 
+            self.tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t48_15B_UR50D") 
+            self.encoder_features = 5120 
+                                
         # Pooling strategy
         if(self.hparams.pool=="default_all"):
             self.pool = DefaultPool(self.encoder_features,pool_cls=True, pool_max=True, pool_mean=True, pool_mean_sqrt=True)
@@ -211,14 +228,21 @@ class ProteinClassifier(pl.LightningModule):
     def forward(self, input_ids=None, attention_mask=None, token_type_ids=None):
         """ PyTorch forward function. Returns dictionary with model outputs. """
         input_ids = torch.tensor(input_ids, device=self.device)
-        attention_mask= torch.ones_like(input_ids) # MW: Very new.
         attention_mask = torch.tensor(attention_mask,device=self.device)
 
         if(self.hparams.model=="bert_bfd"):
             token_embeddings = self.ProtTrans(input_ids, attention_mask)[0]
         elif(self.hparams.model=="t5_xl_uniref50"):
             token_embeddings = self.ProtTrans(input_ids, attention_mask).last_hidden_state
-        
+        elif(self.hparams.model=="esm2_t6_8M_UR50D"): 
+            token_embeddings = self.ProtTrans(input_ids, attention_mask).last_hidden_state 
+        elif(self.hparams.model=="esm2_t33_650M_UR50D"): 
+            token_embeddings = self.ProtTrans(input_ids, attention_mask).last_hidden_state 
+        elif(self.hparams.model=="esm2_t36_3B_UR50D"): 
+            token_embeddings = self.ProtTrans(input_ids, attention_mask).last_hidden_state 
+        elif(self.hparams.model=="esm2_t48_15B_UR50D"): 
+            token_embeddings = self.ProtTrans(input_ids, attention_mask).last_hidden_state 
+                                
         output = self.pool(token_embeddings,attention_mask)
         return {"logits": self.classification_head(output)}
 
@@ -229,11 +253,8 @@ class ProteinClassifier(pl.LightningModule):
     def prepare_sample(self, sample: list, prepare_target: bool = True) -> (dict, dict):
         """
         Function that prepares a sample to input the model.
-        :param sample: list of dictionaries.
-        
-        Returns:
-            - dictionary with the expected model inputs.
-            - dictionary with the expected target labels.
+        :param sample: list of dictionaries.        
+        Returns: dictionary with the expected model inputs, and dictionary with the expected target labels.
         """        
         sample = collate_tensors(sample)
         inputs = self.tokenizer.batch_encode_plus(sample["seq"], add_special_tokens=True, padding=True, truncation=True, max_length=self.hparams.max_length, return_attention_mask=True)
@@ -303,10 +324,8 @@ class ProteinClassifier(pl.LightningModule):
         y_hat_all=self.all_gather(y_hat_all) # Gather over all GPUs
         
         # Attention: We use 1 GPU for testing. With 2,3,4 etc. GPUs the order of the test samples/predictions would be changed and the final (local) evaluation would not work!
-        #torch.save(y_all, '/opt/output/y_all.pt')
-        torch.save(y_all, 'y_all.pt')
-        #torch.save(y_hat_all, '/opt/output/y_hat_all.pt')
-        torch.save(y_hat_all, 'y_hat_all.pt')
+        torch.save(y_all, '/opt/output/y_all.pt')
+        torch.save(y_hat_all, '/opt/output/y_hat_all.pt')
 
     def configure_optimizers(self):
         """ Sets different learning rates for different parameter groups. """
@@ -334,8 +353,7 @@ class ProteinClassifier(pl.LightningModule):
     def train_dataloader(self) -> DataLoader:
         """ Loads training data set. """
         self._train_dataset = self.__retrieve_dataset(val=False, test=False)
-        return DataLoader(dataset=self._train_dataset, 
-            #sampler=RandomSampler(self._train_dataset),
+        return DataLoader(dataset=self._train_dataset,
             sampler=DistributedSampler(self._train_dataset, shuffle=True),
             batch_size=self.hparams.batch_size, collate_fn=self.prepare_sample, num_workers=self.hparams.loader_workers, pin_memory=True)
 
@@ -343,14 +361,14 @@ class ProteinClassifier(pl.LightningModule):
         """ Loads validation set. """
         self._dev_dataset = self.__retrieve_dataset(train=False, test=False)
         return DataLoader(dataset=self._dev_dataset, 
-            sampler=DistributedSampler(self._dev_dataset, shuffle=False), # MW: Very new: ", shuffle=False"
+            sampler=DistributedSampler(self._dev_dataset, shuffle=False),
             batch_size=self.hparams.batch_size, collate_fn=self.prepare_sample, num_workers=self.hparams.loader_workers, pin_memory=True)
 
     def test_dataloader(self) -> DataLoader:
         """ Loads test set. """
         self._test_dataset = self.__retrieve_dataset(train=False, val=False)
         return DataLoader(dataset=self._test_dataset, 
-            sampler=DistributedSampler(self._test_dataset, shuffle=False), # MW: Very new: ", shuffle=False"
+            sampler=DistributedSampler(self._test_dataset, shuffle=False),
             batch_size=self.hparams.batch_size, collate_fn=self.prepare_sample, num_workers=self.hparams.loader_workers, pin_memory=True)
 
     @classmethod
@@ -364,21 +382,18 @@ class ProteinClassifier(pl.LightningModule):
         parser.opt_list("--pool", default="default_all", type=str, help="Pooling type.", options=["default_all", "default_cls"])
 
         # Data arguments:      
-        parser.add_argument("--train_json", default="/data/clas_go_deepgoplus_temporalsplit/train.json", type=str, help="Path to train data.")
-        parser.add_argument("--dev_json", default="/data/clas_go_deepgoplus_temporalsplit/valid.json", type=str, help="Path to dev data.")
-        parser.add_argument("--test_json", default="/data/clas_go_deepgoplus_temporalsplit/test.json", type=str, help="Path to test data.")
+        parser.add_argument("--train_json", default="/data/train.json", type=str, help="Path to train data.")
+        parser.add_argument("--dev_json", default="/data/valid.json", type=str, help="Path to dev data.")
+        parser.add_argument("--test_json", default="/data/test.json", type=str, help="Path to test data.")
         parser.add_argument("--loader_workers", default=8, type=int, help="Subprocesses to use for data loading.")
-        parser.add_argument("--gradient_checkpointing", default=True, type=bool,help="Enable or disable gradient checkpointing.")
         parser.opt_list("--datasetfile",  default="clas_go_deepgoplus_temporalsplit.tar.gz", type=str, help="Choose temporal or CAFA3 split", options=["clas_go_deepgoplus_temporalsplit.tar.gz","clas_go_deepgoplus_cafa.tar.gz"])
 
         return parser
 
-# Setup the TensorBoardLogger # MW: VERY NEW
+# Setup the TensorBoardLogger
 def setup_tensorboard_logger() -> TensorBoardLogger:
-    #return TensorBoardLogger(save_dir="/opt/output", version="0", name="lightning_logs")
-    return TensorBoardLogger(save_dir="", version="0", name="lightning_logs")
+    return TensorBoardLogger(save_dir="/opt/output", version="0", name="lightning_logs")
 logger = setup_tensorboard_logger()
-
 
 parser = HyperOptArgumentParser(strategy="random_search", description="Protein classifier", add_help=True)
 parser.add_argument("--seed", type=int, default=3, help="Training seed.")
@@ -394,7 +409,7 @@ parser.add_argument("--max_epochs", default=100, type=int, help="Limits training
 
 # Batching
 parser.add_argument("--batch_size", default=1, type=int, help="Batch size to be used.")
-parser.add_argument("--accumulate_grad_batches", default=64, type=int, help=("Accumulated gradients runs K small batches of size N before doing a backwards pass."))
+parser.add_argument("--accumulate_grad_batches", default=64, type=int, help=("Accumulated gradients runs K small batches of size N before backwards pass."))
 
 # Learning rate scheduling
 parser.add_argument("--num_warmup_steps", default=500, type=int, help="The number of steps for the warmup phase.")
@@ -464,8 +479,8 @@ trainer = Trainer(
     resume_from_checkpoint=hparams.resume_from_checkpoint,
 )
 
-#trainer.fit(model)
-#trainer.test(ckpt_path='best')
+trainer.fit(model)
+trainer.test(ckpt_path='best')
 
 
 """

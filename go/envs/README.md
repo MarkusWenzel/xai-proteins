@@ -59,7 +59,11 @@ You can create the `stats' conda environment as follows:
 ```
 conda create -n stats ipython
 conda activate stats
-conda install -c conda-forge "scipy>=1.6.0" pandas seaborn pytorch scikit-learn tqdm lxml statsmodels
+conda install -c conda-forge ipython scipy==1.8.1 pandas seaborn pytorch scikit-learn tqdm lxml statsmodels
+# respectively with
+# conda create -n stats
+# conda activate stats
+# conda install -c conda-forge "scipy>=1.6.0" pandas==1.3.5 seaborn pytorch scikit-learn tqdm lxml statsmodels ipython
 ```
 
 (We had then saved this `stats' conda environment with:

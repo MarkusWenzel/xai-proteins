@@ -5,7 +5,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from pathlib import Path
-from scipy.stats import ttest_1samp
+from scipy.stats import normaltest,ttest_1samp,wilcoxon
 from metrics import pbr, rra
 from statsmodels.stats.multitest import multipletests
 
@@ -45,7 +45,12 @@ def embedding_calc(df_test_annot, data_path, tag:str):
     r = {}
     classes = sorted(scores["label"].unique())
     for i in classes:
-        res[i] = ttest_1samp(scores.pbr[scores.label==i], 0.0, alternative="greater").pvalue
+        try:
+            (statistic, pvalue) = normaltest(scores.pbr[scores.label==i])
+            print("Class %i, normality test, pvalue < 0.05? %s" % (i, (pvalue<0.05)))
+        except:
+            print("normaltest not possible")
+        res[i] = wilcoxon(scores.pbr[scores.label==i], alternative="greater").pvalue
         print("Class %i: p=%.3f" % (i, res[i]))
         r[i] = median_correlation_per_class.loc[i].pbr
         print("Class %i: r=%.3f" % (i, r[i]))    
@@ -81,7 +86,7 @@ def create_metric_score_dataframes(df_test_annot, relevance_dir, tag:str):
 
 
 def plot_summary_of_correlations(metric_name:str, tag:str, labels):
-    """Plot summary of annotation-relevance-correlations as heatmaps. T-test for point-biserial correlation (and average per class for relevance rank accuracy) visualize 480 element vector as heatmap and store it in results/.
+    """Plot summary of annotation-relevance-correlations as heatmaps. Wilcoxon signed rank test for point-biserial correlation (and average per class for relevance rank accuracy) visualize 480 element vector as heatmap and store it in results/.
     Args:
         metric_name (str): 'pbr' (point biserial correlation coefficient) or 'rra' (relevance rank accuracy)
         tag: type of sequence level annotation ("active", "binding", "transmembrane", "motif")        
@@ -95,7 +100,12 @@ def plot_summary_of_correlations(metric_name:str, tag:str, labels):
 
         if metric_name=="pbr": # point-biserial-r
             cmap_label = "-log(p)"
-            res = ttest_1samp(df_metric_scores, 0.0, alternative='greater') # t-test over all correl. coefficients (one per sample)            
+            try:
+                (statistic, pvalue) = normaltest(df_metric_scores)
+                print("Normality test, any pvalue < 0.05? %s" % any(pvalue<0.05))
+            except:
+                print("normaltest not possible")
+            res = wilcoxon(df_metric_scores, alternative="greater")
             (reject_t, pvals_corrected, alphacSidak, alphacBonf) = multipletests(res.pvalue, alpha=0.05, method="fdr_bh")            
             # Corrected for multiple comparisons; reject_t used as significance threshold by "mask" parameter of sns.heatmap
             res = -np.log(pvals_corrected)
@@ -104,7 +114,7 @@ def plot_summary_of_correlations(metric_name:str, tag:str, labels):
             cmap_label = "Rank accuracy"
             res = df_metric_scores.mean(axis=0).to_numpy()
 
-        sns.heatmap(data=res.reshape(30,16), ax=axes[i], mask=(~reject_t).reshape(30,16), vmin=0, cmap=sns.color_palette("flare", as_cmap=True), cbar_kws={'label': cmap_label})
+        sns.heatmap(data=res.reshape(30,16), ax=axes[i], mask=(~reject_t).reshape(30,16), vmin=0, vmax=70, cmap=sns.color_palette("flare", as_cmap=True), cbar_kws={'label': cmap_label})
         axes[i].set_xlabel("Heads")
         axes[i].set_ylabel("Layers")
         axes[i].set_title(f"EC%i: corr({tag}, relev.)" % i)
@@ -132,7 +142,7 @@ if __name__ == "__main__":
 
     n_annotated = {}  # samples in test split for each type of annotation
     
-    # p-values of t-tests over correlation coefficients of annotation and relevances in embedding layer for each type of annotation 
+    # p-values of Wilcoxon signed rank tests over correlation coefficients of annotation and relevances in embedding layer for each type of annotation 
     p_embedding = {}
     
     for tag in ["active", "binding", "transmembrane", "motif"]:
@@ -169,17 +179,17 @@ if __name__ == "__main__":
     df = p_embedding["active"].append(p_embedding["binding"]).append(p_embedding["trans-\nmembrane"]).append(p_embedding["motif"])
     df = df.rename(columns = {"tag":"Annotation", "Class":"EC"})
     df["EC"] += 1 # Renaming EC0-EC5 (Python-style indexing) to EC1-EC6 for consistency with <six> EC classes
+    df["-log(p)"]=-np.log(df["p"])
     plt.figure(figsize=(4.5,4))
-    sns.barplot(data=df, x="Annotation", y="p", hue="EC", width=0.8, saturation=0.7) 
+    sns.barplot(data=df, x="Annotation", y="-log(p)", hue="EC", width=0.8, saturation=0.7)
     # Add significance level 0.05 as additional line and y-tick
-    new_yticks = sorted(np.append(plt.gca().get_yticks(), 0.05))
+    new_yticks = sorted(np.append(plt.gca().get_yticks(), -np.log(0.05)))
     plt.gca().set_yticks(new_yticks)   
     xlimits = plt.gca().get_xlim()
-    plt.plot(xlimits, [0.05, 0.05], 'b', lw=1)
+    plt.plot(xlimits, -np.log([0.05, 0.05]), 'b', lw=1)
     plt.xlim(xlimits)
-    plt.ylim([0,1])
     plt.savefig(Path("results", f"ec-annot-rel-corr-embedding-p.png"), bbox_inches="tight")
-    plt.close()    
+    plt.close()
     
     # Number of annotated samples per EC class and annotation
     df = pd.DataFrame(n_annotated).stack()

@@ -20,7 +20,7 @@ def run_embedding_all_proteins(prot_df, model, output_dir):
         spamwriter = csv.writer(csvfile, delimiter=' ', quotechar='|', quoting=csv.QUOTE_MINIMAL)
         spamwriter.writerow(["protein_name","protein_label","attribution"])
         for row in tqdm(prot_df.itertuples()):
-            prot_seq, prot_name ,prot_label = row[1],row[2],row[3]
+            prot_seq, prot_name, prot_label = row[1],row[2],row[3]
             input_ids, ref_input_ids, target = get_model_inputs(prot_seq, prot_label, model)
             attr = ig_embedding(model, input_ids, ref_input_ids, target, module_name="embeddings",n_steps=500) # return embedding tensor
             attr_across_tokens = torch.sum(attr.squeeze(0),dim=1)

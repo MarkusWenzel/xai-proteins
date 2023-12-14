@@ -8,15 +8,6 @@ from pathlib import Path
 def processing():
     """ Create active|binding|motif|transmembrane datasets and iterate through the class,level folders in data/ and create test,train,valid.json files from their .npy files """
 
-    """
-    # create folder for models
-    Path("models/ec50_level0/").mkdir(parents=True, exist_ok=True)
-    Path("models/ec50_level1/").mkdir(parents=True, exist_ok=True)
-    Path("models/ec50_level2/").mkdir(parents=True, exist_ok=True)
-    Path("models/ec40_level0/").mkdir(parents=True, exist_ok=True)
-    Path("models/ec40_level1/").mkdir(parents=True, exist_ok=True)
-    Path("models/ec40_level2/").mkdir(parents=True, exist_ok=True)
-    """
     # create data/motif/binding/active_site.pkl from .xml
     sites_helper.create_datasets("data/uniprot_sprot_2017_03.xml", parse_features=["active site", "binding site", "short sequence motif", "transmembrane region"])
     remove_annotation_sites_duplicates("data/active_site.pkl","data/active_site_clean.pkl")
@@ -58,8 +49,7 @@ def remove_annotation_sites_duplicates(annotation_site_filepath:str, output_file
         D = D.append(df_n.iloc[0])
 
     # add label column
-    D["label"] = D["EC-Label"].apply(lambda x:int(x[0][0])-1)
-    D = D[["name","EC-Label","label","type","description", "location","evidence","primary"]]
+    D = D[["name","EC-Label","type","description", "location","evidence","primary"]]
     D.to_pickle(output_filepath)
 
 def preprocess_dataset(test_path, max_len=1000):
@@ -94,11 +84,19 @@ def process_annotation_data(test_path: str, annotation_path, max_seq_len=1000):
     
     data_test = pd.read_json(f"{test_path}test.json")
     data_annotation = pd.read_pickle(annotation_path)
+
+    if "level1" in test_path: 
+        data_annotation["label"] = data_annotation["EC-Label"].apply(lambda x:int(x[0].split('.')[0])-1)
+    elif "level2" in test_path:
+        data_annotation["label"] = data_annotation["EC-Label"].apply(lambda x:".".join(x[0].split(".", 2)[0:2]))
         
+    data_annotation = data_annotation[pd.to_numeric(data_annotation["label"], errors="coerce").notnull()]
+            
     test_names = data_test['name'].to_list()
     annotation_name_list = data_annotation['name'].to_list()
     test_annotation = [annotation_name in test_names for annotation_name in annotation_name_list]
     data_test_annotation = data_annotation.loc[test_annotation]
+
 
     # drop the proteins with annotations above max seq length
     c = []
