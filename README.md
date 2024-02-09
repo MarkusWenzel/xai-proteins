@@ -25,7 +25,7 @@ Markus Wenzel, Erik Grüner, Nils Strodthoff (2024). [Insights into the inner wo
     
     @article{10.1093/bioinformatics/btae031, author = {Wenzel, Markus and Grüner, Erik and Strodthoff, Nils}, title = "{Insights into the inner workings of transformer models for protein function prediction}", journal = {Bioinformatics}, pages = {btae031}, year = {2024}, month = {01}, issn = {1367-4811}, doi = {10.1093/bioinformatics/btae031}, url = {https://doi.org/10.1093/bioinformatics/btae031}}
 
-### Related works
+## Related works
 
 If you are interested in this topic, you are welcome to have a look at our related papers:
 * Nils Strodthoff, Patrick Wagner, Markus Wenzel, and Wojciech Samek (2020). [UDSMProt: universal deep sequence models for protein classification](https://doi.org/10.1093/bioinformatics/btaa003). _Bioinformatics_, 36(8), 2401–2409.
