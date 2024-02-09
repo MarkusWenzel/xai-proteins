@@ -3,14 +3,10 @@ message: "If you use this software, please cite it as below."
 authors:
   - given-names: Markus
     family-names: Wenzel
-    affiliation: Fraunhofer HHI
-    orcid: 'https://orcid.org/0000-0002-6540-1476'
   - given-names: Erik
     family-names: Grüner
   - given-names: Nils
     family-names: Strodthoff
-    orcid: 'https://orcid.org/0000-0003-4447-0162'
-    affiliation: Carl von Ossietzky University of Oldenburg
 title: "Insights into the inner workings of transformer models for protein function prediction"
 version: 1
 doi: 10.1093/bioinformatics/btae031
@@ -21,14 +17,10 @@ preferred-citation:
   authors:
   - given-names: Markus
     family-names: Wenzel
-    affiliation: Fraunhofer HHI
-    orcid: 'https://orcid.org/0000-0002-6540-1476'
   - given-names: Erik
     family-names: Grüner
   - given-names: Nils
     family-names: Strodthoff
-    orcid: 'https://orcid.org/0000-0003-4447-0162'
-    affiliation: Carl von Ossietzky University of Oldenburg
   doi: "10.1093/bioinformatics/btae031"
   journal: "Bioinformatics"
   month: 1
