@@ -1,13 +1,8 @@
 cff-version: 1.2.0
-title: >-
-  Insights into the inner workings of transformer models for protein function prediction
-message: >-
-  Please cite it with the metadata from this file.
-type: article
+message: "If you use this software, please cite it as below."
 authors:
   - given-names: Markus
     family-names: Wenzel
-    email: markus.wenzel@hhi.fraunhofer.de
     affiliation: Fraunhofer HHI
     orcid: 'https://orcid.org/0000-0002-6540-1476'
   - given-names: Erik
@@ -15,8 +10,28 @@ authors:
   - given-names: Nils
     family-names: Strodthoff
     orcid: 'https://orcid.org/0000-0003-4447-0162'
-    email: nils.strodthoff@uni-oldenburg.de
     affiliation: Carl von Ossietzky University of Oldenburg
-identifiers:
-  - type: doi
-    value: 'tbd.'
+title: "Insights into the inner workings of transformer models for protein function prediction"
+version: 1
+doi: 10.1093/bioinformatics/btae031
+date-released: 2024-01-19
+url: "https://github.com/MarkusWenzel/xai-proteins/"
+preferred-citation:
+  type: article
+  authors:
+  - given-names: Markus
+    family-names: Wenzel
+    affiliation: Fraunhofer HHI
+    orcid: 'https://orcid.org/0000-0002-6540-1476'
+  - given-names: Erik
+    family-names: Grüner
+  - given-names: Nils
+    family-names: Strodthoff
+    orcid: 'https://orcid.org/0000-0003-4447-0162'
+    affiliation: Carl von Ossietzky University of Oldenburg
+  doi: "10.1093/bioinformatics/btae031"
+  journal: "Bioinformatics"
+  month: 1
+  start: btae031
+  title: "Insights into the inner workings of transformer models for protein function prediction"
+  year: 2024
