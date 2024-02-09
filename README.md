@@ -19,7 +19,7 @@ The two folders of this repository are dedicated to the explainability analysis 
 
 ## Publication
 
-You find more information in our _Bioinformatics_-article:
+You find more information in our article:
 
 Markus Wenzel, Erik Grüner, Nils Strodthoff (2024). [Insights into the inner workings of transformer models for protein function prediction](https://doi.org/10.1093/bioinformatics/btae031), _Bioinformatics_, btae031.
     
